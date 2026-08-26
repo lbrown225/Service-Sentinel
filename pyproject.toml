@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "service-sentinel"
+version = "0.1.0"
+description = "Production-style AWS service health platform"
+readme = "README.md"
+requires-python = ">=3.14"
+
+[tool.setuptools.packages.find]
+include = ["service_sentinel*"]
+
