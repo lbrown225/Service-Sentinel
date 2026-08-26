@@ -1,12 +1,37 @@
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.coverage
-htmlcov/
+.Python
+
+# Virtual environments
 .venv/
 venv/
+env/
+
+# Test, lint, type-check, and coverage output
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Packaging output
 dist/
 build/
 *.egg-info/
-.env
 
+# Local configuration
+.env
+.env.*
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

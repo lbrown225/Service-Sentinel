@@ -1,43 +1,34 @@
 # Service Sentinel
 
-Service Sentinel is a production-style AWS service health platform being built
-for a DevOps/reliability portfolio interview.
-
-This initial scaffold intentionally contains only the local Python core:
-
-- `GET /health` reports whether the API process is serving requests.
-- `GET /status` reports the latest monitored service state.
-- Missing or stale monitoring data is always reported as `UNKNOWN`.
-- The monitor classifies HTTP 2xx responses as `HEALTHY` and all other
-  responses or request errors as `UNHEALTHY`.
-
-The in-memory repository is only a local development seam. A later increment
-will provide the DynamoDB implementation used by the two Lambda functions.
+Milestone 1 is a minimal FastAPI service with a health endpoint and a Mangum
+adapter for a future AWS Lambda deployment. It contains no AWS infrastructure,
+monitoring logic, container configuration, or frontend.
 
 ## Requirements
 
 - Python 3.14+
 
-There are no third-party runtime or test dependencies in this increment.
-
 ## Run locally
 
-Start the API:
+Create and activate a virtual environment:
 
 ```powershell
-python -m service_sentinel.api
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 ```
 
-Then query it in another terminal:
+Install the application and development dependencies:
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8080/health
-Invoke-RestMethod http://127.0.0.1:8080/status
+python -m pip install -e ".[dev]"
 ```
 
-Run the tests:
+Run linting and tests:
 
 ```powershell
-python -m unittest discover -s tests -v
+ruff check .
+pytest
 ```
 
+The API application is `service_sentinel.app:app`. The Lambda entry point is
+`service_sentinel.app.handler`.
