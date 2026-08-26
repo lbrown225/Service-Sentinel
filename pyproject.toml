@@ -15,9 +15,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "httpx2>=2.0,<3.0",
+    "httpx>=.28,<1.0",
     "pytest>=8.4,<10.0",
     "ruff>=0.12,<1.0",
+    "uvicorn>=0.52,<1.0",
 ]
 
 [tool.setuptools]
