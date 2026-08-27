@@ -1,0 +1,37 @@
+# Version control
+.git/
+.gitignore
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Python bytecode and caches
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Tests, coverage, and packaging output
+tests/
+scripts/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+build/
+dist/
+**/*.egg-info/
+
+# Local configuration and editor files
+.env
+.env.*
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
