@@ -9,6 +9,7 @@ description = "Service Sentinel health API"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "boto3>=1.43,<2.0",
     "fastapi>=0.116,<1.0",
     "mangum>=0.19,<1.0",
 ]
