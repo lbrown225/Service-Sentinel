@@ -19,6 +19,10 @@ Terraform cannot reliably identify every resource it created.
 | Status | AWS service | Resource | Terraform address | Purpose | Cost exposure |
 | --- | --- | --- | --- | --- | --- |
 | Active—created 2026-08-27 | ECR | `service-sentinel` repository | `aws_ecr_repository.service_sentinel` | Stores immutable Lambda container images | Stored image data and applicable image scanning |
+| Active—created 2026-08-28 | IAM | `service-sentinel-api-lambda` role | `aws_iam_role.api_lambda` | Execution identity assumed by the API Lambda | No direct IAM charge |
+| Active—created 2026-08-28 | IAM | Basic Lambda logging policy attachment | `aws_iam_role_policy_attachment.api_lambda_basic` | Allows the API Lambda to write CloudWatch logs | No direct IAM charge; log ingestion and storage may incur charges |
+| Active—created 2026-08-28 | Lambda | `service-sentinel-api` version `1` | `aws_lambda_function.api` | Runs the candidate health API image | Invocation duration, requests, and related logging |
+| Active—created 2026-08-28 | Lambda | `candidate` alias → version `1` | `aws_lambda_alias.candidate` | Smoke-test target before production promotion | No direct alias charge |
 
 ## ECR artifacts
 
@@ -26,7 +30,7 @@ Record each pushed image tag and digest here after it is uploaded.
 
 | Image tag | Image digest | Deployment use | Removed |
 | --- | --- | --- | --- |
-| `929a4c1395cb` | `sha256:9b6635da09d50f40993437f1707f21639cd906dfb4ae94011ec39b5fb257e341` | Candidate—not deployed yet | No |
+| `929a4c1395cb` | `sha256:9b6635da09d50f40993437f1707f21639cd906dfb4ae94011ec39b5fb257e341` | Lambda candidate version `1`—smoke test passed | No |
 
 ## Teardown procedure
 
