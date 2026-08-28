@@ -26,7 +26,7 @@ Record each pushed image tag and digest here after it is uploaded.
 
 | Image tag | Image digest | Deployment use | Removed |
 | --- | --- | --- | --- |
-| None yet | None yet | None yet | Not applicable |
+| `929a4c1395cb` | `sha256:9b6635da09d50f40993437f1707f21639cd906dfb4ae94011ec39b5fb257e341` | Candidate—not deployed yet | No |
 
 ## Teardown procedure
 
