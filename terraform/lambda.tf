@@ -27,3 +27,14 @@ resource "aws_lambda_alias" "candidate" {
   function_name    = aws_lambda_function.api.function_name
   function_version = aws_lambda_function.api.version
 }
+
+resource "aws_lambda_alias" "production" {
+  name             = "production"
+  description      = "Production version serving API Gateway traffic"
+  function_name    = aws_lambda_function.api.function_name
+  function_version = aws_lambda_function.api.version
+
+  lifecycle {
+    ignore_changes = [function_version]
+  }
+}
