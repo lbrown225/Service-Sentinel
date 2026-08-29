@@ -16,8 +16,16 @@ resource "aws_lambda_function" "api" {
   timeout     = 10
   publish     = true
 
+  environment {
+    variables = {
+      STATUS_STALE_AFTER_SECONDS = "300"
+      STATUS_TABLE_NAME          = aws_dynamodb_table.service_status.name
+    }
+  }
+
   depends_on = [
-    aws_iam_role_policy_attachment.api_lambda_basic
+    aws_iam_role_policy_attachment.api_lambda_basic,
+    aws_iam_role_policy.api_lambda_dynamodb_read
   ]
 }
 

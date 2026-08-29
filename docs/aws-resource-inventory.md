@@ -21,14 +21,19 @@ Terraform cannot reliably identify every resource it created.
 | Active—created 2026-08-27 | ECR | `service-sentinel` repository | `aws_ecr_repository.service_sentinel` | Stores immutable Lambda container images | Stored image data and applicable image scanning |
 | Active—created 2026-08-28 | IAM | `service-sentinel-api-lambda` role | `aws_iam_role.api_lambda` | Execution identity assumed by the API Lambda | No direct IAM charge |
 | Active—created 2026-08-28 | IAM | Basic Lambda logging policy attachment | `aws_iam_role_policy_attachment.api_lambda_basic` | Allows the API Lambda to write CloudWatch logs | No direct IAM charge; log ingestion and storage may incur charges |
+| Active—created 2026-08-28 | IAM | `service-sentinel-api-dynamodb-read` inline policy | `aws_iam_role_policy.api_lambda_dynamodb_read` | Allows the API Lambda to read one item from the status table | No direct IAM charge |
 | Active—created 2026-08-28 | Lambda | `service-sentinel-api` version `1` | `aws_lambda_function.api` | Runs the candidate health API image | Invocation duration, requests, and related logging |
-| Active—created 2026-08-28 | Lambda | `candidate` alias → version `1` | `aws_lambda_alias.candidate` | Smoke-test target before production promotion | No direct alias charge |
-| Active—created 2026-08-28 | Lambda | `production` alias → version `1` | `aws_lambda_alias.production` | Stable target for production API traffic | No direct alias charge |
+| Active—published 2026-08-28 | Lambda | `service-sentinel-api` version `2` | `aws_lambda_function.api` | Runs the health and status API with DynamoDB configuration | Invocation duration, requests, and related logging |
+| Active—updated 2026-08-28 | Lambda | `candidate` alias → version `2` | `aws_lambda_alias.candidate` | Smoke-test target before production promotion | No direct alias charge |
+| Active—updated 2026-08-28 | Lambda | `production` alias → version `2` | `aws_lambda_alias.production` | Stable target for production API traffic | No direct alias charge |
+| Active—created 2026-08-28 | DynamoDB | `service-sentinel-status` table | `aws_dynamodb_table.service_status` | Stores the latest status record for each monitored service | On-demand read/write requests and stored data |
 | Active—created 2026-08-28 | API Gateway | `service-sentinel-api` HTTP API | `aws_apigatewayv2_api.service_sentinel` | Public HTTP entry point | Requests and data transfer |
 | Active—created 2026-08-28 | API Gateway | Production Lambda integration | `aws_apigatewayv2_integration.api_lambda` | Sends API requests to the production Lambda alias | Included with API requests |
 | Active—created 2026-08-28 | API Gateway | `GET /health` route | `aws_apigatewayv2_route.health` | Exposes the production health endpoint | Included with API requests |
+| Active—created 2026-08-28 | API Gateway | `GET /status` route | `aws_apigatewayv2_route.status` | Exposes the latest conservatively evaluated monitoring status | Included with API requests |
 | Active—created 2026-08-28 | API Gateway | `$default` stage | `aws_apigatewayv2_stage.default` | Serves `/health` without a stage prefix | Included with API requests |
 | Active—created 2026-08-28 | Lambda | API Gateway health invocation permission | `aws_lambda_permission.api_gateway_health` | Allows this API route to invoke the production alias | No direct permission charge |
+| Active—created 2026-08-28 | Lambda | API Gateway status invocation permission | `aws_lambda_permission.api_gateway_status` | Allows the status route to invoke the production alias | No direct permission charge |
 | Active—AWS-created 2026-08-28 | CloudWatch Logs | `/aws/lambda/service-sentinel-api` | Not yet managed by Terraform | Stores Lambda execution logs; retention is currently unlimited | Log ingestion and indefinite storage until retention is configured |
 
 ## ECR artifacts
@@ -38,6 +43,7 @@ Record each pushed image tag and digest here after it is uploaded.
 | Image tag | Image digest | Deployment use | Removed |
 | --- | --- | --- | --- |
 | `929a4c1395cb` | `sha256:9b6635da09d50f40993437f1707f21639cd906dfb4ae94011ec39b5fb257e341` | Lambda version `1`—candidate and production smoke tests passed | No |
+| `0fc6f9a11962` | `sha256:604df4500e5c580110b9c0caa06ce9e3fa57fce34c7b71cf811f28dd9e496ff7` | Lambda version `2`—candidate and production smoke tests passed; ECR scan completed successfully | No |
 
 ## Teardown procedure
 

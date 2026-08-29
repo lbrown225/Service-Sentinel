@@ -3,6 +3,8 @@ param(
     [string]$FunctionName = "service-sentinel-api",
     [string]$Alias = "candidate",
     [string]$ExpectedVersion = "",
+    [ValidateSet("health", "status")]
+    [string]$Route = "health",
     [string]$Profile = "service-sentinel",
     [string]$Region = "us-west-1"
 )
@@ -12,10 +14,12 @@ $ErrorActionPreference = "Stop"
 
 $awsCommand = Get-Command aws -ErrorAction Stop
 $now = [DateTimeOffset]::UtcNow
+$requestPath = "/$Route"
+$routeKey = "GET $requestPath"
 $lambdaEvent = @{
     version = "2.0"
-    routeKey = "GET /health"
-    rawPath = "/health"
+    routeKey = $routeKey
+    rawPath = $requestPath
     rawQueryString = ""
     headers = @{
         host = "candidate.internal"
@@ -27,13 +31,13 @@ $lambdaEvent = @{
         domainPrefix = "candidate"
         http = @{
             method = "GET"
-            path = "/health"
+            path = $requestPath
             protocol = "HTTP/1.1"
             sourceIp = "127.0.0.1"
             userAgent = "invoke-candidate.ps1"
         }
-        requestId = "candidate-$($now.ToUnixTimeMilliseconds())"
-        routeKey = "GET /health"
+        requestId = "candidate-$Route-$($now.ToUnixTimeMilliseconds())"
+        routeKey = $routeKey
         stage = '$default'
         time = $now.ToString(
             "dd/MMM/yyyy:HH:mm:ss +0000",
@@ -106,30 +110,57 @@ try {
         )
     }
 
-    $healthResponse = $lambdaResponse.body | ConvertFrom-Json
-    $expectedFields = @("service", "status", "version")
-    $actualFields = @($healthResponse.PSObject.Properties.Name | Sort-Object)
+    $apiResponse = $lambdaResponse.body | ConvertFrom-Json
+    $expectedFields = if ($Route -eq "health") {
+        @("service", "status", "version")
+    }
+    else {
+        @("checked_at", "service", "status")
+    }
+    $actualFields = @($apiResponse.PSObject.Properties.Name | Sort-Object)
     $fieldDifference = Compare-Object $expectedFields $actualFields
 
     if ($fieldDifference) {
-        throw "Unexpected health response fields: $($actualFields -join ', ')"
+        throw "Unexpected $Route response fields: $($actualFields -join ', ')"
     }
 
-    if (
-        $healthResponse.status -ne "healthy" -or
-        $healthResponse.service -ne "service-sentinel-api" -or
-        $healthResponse.version -ne "0.1.0"
-    ) {
-        throw "Unexpected health response body: $($lambdaResponse.body)"
+    if ($apiResponse.service -ne "service-sentinel-api") {
+        throw "Unexpected $Route response body: $($lambdaResponse.body)"
+    }
+
+    $version = $null
+    $checkedAt = $null
+
+    if ($Route -eq "health") {
+        if (
+            $apiResponse.status -ne "healthy" -or
+            $apiResponse.version -ne "0.1.0"
+        ) {
+            throw "Unexpected health response body: $($lambdaResponse.body)"
+        }
+
+        $version = $apiResponse.version
+    }
+    else {
+        if (
+            $apiResponse.status -ne "UNKNOWN" -or
+            $null -ne $apiResponse.checked_at
+        ) {
+            throw "Unexpected status response body: $($lambdaResponse.body)"
+        }
+
+        $checkedAt = $apiResponse.checked_at
     }
 
     [pscustomobject]@{
+        Route = $requestPath
         InvokeStatusCode = $metadata.StatusCode
         ExecutedVersion = $metadata.ExecutedVersion
         HttpStatusCode = $lambdaResponse.statusCode
-        Status = $healthResponse.status
-        Service = $healthResponse.service
-        Version = $healthResponse.version
+        Status = $apiResponse.status
+        Service = $apiResponse.service
+        Version = $version
+        CheckedAt = $checkedAt
     }
 }
 finally {
