@@ -17,6 +17,12 @@ resource "aws_apigatewayv2_route" "health" {
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "status" {
+  api_id    = aws_apigatewayv2_api.service_sentinel.id
+  route_key = "GET /status"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
 resource "aws_apigatewayv2_stage" "default" {
   api_id      = aws_apigatewayv2_api.service_sentinel.id
   name        = "$default"
@@ -30,4 +36,13 @@ resource "aws_lambda_permission" "api_gateway_health" {
   qualifier     = aws_lambda_alias.production.name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.service_sentinel.execution_arn}/*/GET/health"
+}
+
+resource "aws_lambda_permission" "api_gateway_status" {
+  statement_id  = "AllowApiGatewayInvokeProductionStatus"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.api.function_name
+  qualifier     = aws_lambda_alias.production.name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.service_sentinel.execution_arn}/*/GET/status"
 }
