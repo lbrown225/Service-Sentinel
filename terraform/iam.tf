@@ -34,3 +34,29 @@ resource "aws_iam_role_policy" "api_lambda_dynamodb_read" {
   role   = aws_iam_role.api_lambda.name
   policy = data.aws_iam_policy_document.api_lambda_dynamodb_read.json
 }
+
+
+data "aws_iam_policy_document" "monitor_lambda_dynamodb_write" {
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.service_status.arn]
+  }
+}
+
+resource "aws_iam_role" "monitor_lambda" {
+  name               = "service-sentinel-monitor-lambda"
+  description        = "monitor role for the Service Sentinel api"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "monitor_lambda_basic" {
+  role       = aws_iam_role.monitor_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "monitor_lambda_dynamodb_write" {
+  name   = "service-sentinel-monitor-dynamodb-write"
+  role   = aws_iam_role.monitor_lambda.name
+  policy = data.aws_iam_policy_document.monitor_lambda_dynamodb_write.json
+}
