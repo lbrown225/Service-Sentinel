@@ -25,7 +25,7 @@ $lambdaEvent = @{
             path = "/health"
             protocol = "HTTP/1.1"
             sourceIp = "127.0.0.1"
-            userAgent = "invoke-local.ps1"
+            userAgent = "smoke-api-local-container.ps1"
         }
         requestId = "local-$($now.ToUnixTimeMilliseconds())"
         routeKey = "GET /health"
