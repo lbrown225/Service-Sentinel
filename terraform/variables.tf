@@ -7,3 +7,9 @@ variable "candidate_image_tag" {
     error_message = "candidate_image_tag must be a 12- to 40-character lowercase hexadecimal Git SHA."
   }
 }
+
+variable "monitor_schedule_enabled" {
+  description = "Whether the recurring monitor schedule is active"
+  type        = bool
+  default     = false
+}
