@@ -29,6 +29,55 @@ resource "aws_lambda_function" "api" {
   ]
 }
 
+resource "aws_lambda_function" "monitor" {
+  function_name = "service-sentinel-monitor"
+  description   = "Service Sentinel health monitor"
+  role          = aws_iam_role.monitor_lambda.arn
+
+  package_type  = "Image"
+  image_uri     = "${aws_ecr_repository.service_sentinel.repository_url}@${data.aws_ecr_image.candidate.image_digest}"
+  architectures = ["x86_64"]
+
+  image_config {
+    command = ["service_sentinel.monitor.handler"]
+  }
+
+  memory_size = 256
+  timeout     = 15
+  publish     = true
+
+  environment {
+    variables = {
+      HEALTH_ENDPOINT              = "${aws_apigatewayv2_api.service_sentinel.api_endpoint}/health"
+      HEALTH_CHECK_TIMEOUT_SECONDS = "5"
+      STATUS_TABLE_NAME            = aws_dynamodb_table.service_status.name
+    }
+  }
+
+  depends_on = [
+    aws_iam_role_policy_attachment.monitor_lambda_basic,
+    aws_iam_role_policy.monitor_lambda_dynamodb_write
+  ]
+}
+
+resource "aws_lambda_alias" "monitor_candidate" {
+  name             = "candidate"
+  description      = "Candidate monitor version awaiting smoke-test approval"
+  function_name    = aws_lambda_function.monitor.function_name
+  function_version = aws_lambda_function.monitor.version
+}
+
+resource "aws_lambda_alias" "monitor_production" {
+  name             = "production"
+  description      = "Production monitor version for scheduled health checks"
+  function_name    = aws_lambda_function.monitor.function_name
+  function_version = aws_lambda_function.monitor.version
+
+  lifecycle {
+    ignore_changes = [function_version]
+  }
+}
+
 resource "aws_lambda_alias" "candidate" {
   name             = "candidate"
   description      = "Candidate version awaiting smoke-test approval"

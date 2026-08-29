@@ -2,6 +2,8 @@
 param(
     [ValidateSet("health", "status")]
     [string]$Route = "health",
+    [ValidateSet("UNKNOWN", "HEALTHY", "UNHEALTHY")]
+    [string]$ExpectedStatus = "HEALTHY",
     [string]$Endpoint = ""
 )
 
@@ -60,11 +62,15 @@ if ($Route -eq "health") {
     $version = $apiResponse.version
 }
 else {
-    if (
-        $apiResponse.status -ne "UNKNOWN" -or
-        $null -ne $apiResponse.checked_at
-    ) {
+    if ($apiResponse.status -ne $ExpectedStatus) {
         throw "Unexpected status response body: $responseBody"
+    }
+
+    if (
+        $ExpectedStatus -ne "UNKNOWN" -and
+        ($null -eq $apiResponse.checked_at -or $apiResponse.checked_at -le 0)
+    ) {
+        throw "Known status must include a positive checked_at timestamp."
     }
 
     $checkedAt = $apiResponse.checked_at

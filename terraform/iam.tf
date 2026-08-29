@@ -34,3 +34,61 @@ resource "aws_iam_role_policy" "api_lambda_dynamodb_read" {
   role   = aws_iam_role.api_lambda.name
   policy = data.aws_iam_policy_document.api_lambda_dynamodb_read.json
 }
+
+
+data "aws_iam_policy_document" "monitor_lambda_dynamodb_write" {
+  statement {
+    effect    = "Allow"
+    actions   = ["dynamodb:PutItem"]
+    resources = [aws_dynamodb_table.service_status.arn]
+  }
+}
+
+resource "aws_iam_role" "monitor_lambda" {
+  name               = "service-sentinel-monitor-lambda"
+  description        = "monitor role for the Service Sentinel api"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume_role.json
+}
+
+resource "aws_iam_role_policy_attachment" "monitor_lambda_basic" {
+  role       = aws_iam_role.monitor_lambda.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "monitor_lambda_dynamodb_write" {
+  name   = "service-sentinel-monitor-dynamodb-write"
+  role   = aws_iam_role.monitor_lambda.name
+  policy = data.aws_iam_policy_document.monitor_lambda_dynamodb_write.json
+}
+
+data "aws_iam_policy_document" "scheduler_assume_role" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["scheduler.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role" "monitor_scheduler" {
+  name               = "service-sentinel-monitor-scheduler"
+  description        = "Execution role for the Service Sentinel monitor schedule"
+  assume_role_policy = data.aws_iam_policy_document.scheduler_assume_role.json
+}
+
+data "aws_iam_policy_document" "scheduler_invoke_monitor" {
+  statement {
+    effect    = "Allow"
+    actions   = ["lambda:InvokeFunction"]
+    resources = [aws_lambda_alias.monitor_production.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "scheduler_invoke_monitor" {
+  name   = "service-sentinel-scheduler-invoke-monitor"
+  role   = aws_iam_role.monitor_scheduler.name
+  policy = data.aws_iam_policy_document.scheduler_invoke_monitor.json
+}

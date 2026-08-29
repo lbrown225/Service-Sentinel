@@ -5,6 +5,8 @@ param(
     [string]$ExpectedVersion = "",
     [ValidateSet("health", "status")]
     [string]$Route = "health",
+    [ValidateSet("UNKNOWN", "HEALTHY", "UNHEALTHY")]
+    [string]$ExpectedStatus = "HEALTHY",
     [string]$Profile = "service-sentinel",
     [string]$Region = "us-west-1"
 )
@@ -34,7 +36,7 @@ $lambdaEvent = @{
             path = $requestPath
             protocol = "HTTP/1.1"
             sourceIp = "127.0.0.1"
-            userAgent = "invoke-candidate.ps1"
+            userAgent = "smoke-api-candidate.ps1"
         }
         requestId = "candidate-$Route-$($now.ToUnixTimeMilliseconds())"
         routeKey = $routeKey
@@ -142,11 +144,15 @@ try {
         $version = $apiResponse.version
     }
     else {
-        if (
-            $apiResponse.status -ne "UNKNOWN" -or
-            $null -ne $apiResponse.checked_at
-        ) {
+        if ($apiResponse.status -ne $ExpectedStatus) {
             throw "Unexpected status response body: $($lambdaResponse.body)"
+        }
+
+        if (
+            $ExpectedStatus -ne "UNKNOWN" -and
+            ($null -eq $apiResponse.checked_at -or $apiResponse.checked_at -le 0)
+        ) {
+            throw "Known status must include a positive checked_at timestamp."
         }
 
         $checkedAt = $apiResponse.checked_at
