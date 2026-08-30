@@ -1,0 +1,53 @@
+name: Continuous Integration
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify application and infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install Python dependencies
+        run: python -m pip install --editable ".[dev]"
+
+      - name: Run Ruff
+        run: ruff check .
+
+      - name: Run pytest
+        run: pytest
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_version: "1.16.0"
+
+      - name: Check Terraform formatting
+        run: terraform -chdir=terraform fmt -check -recursive
+
+      - name: Initialize Terraform for validation
+        run: terraform -chdir=terraform init -backend=false -input=false
+
+      - name: Validate Terraform
+        run: terraform -chdir=terraform validate
+
+      - name: Build Lambda container image
+        run: docker build --platform linux/amd64 --tag service-sentinel:${{ github.sha }} .
