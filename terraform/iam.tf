@@ -61,6 +61,26 @@ resource "aws_iam_role_policy" "monitor_lambda_dynamodb_write" {
   policy = data.aws_iam_policy_document.monitor_lambda_dynamodb_write.json
 }
 
+data "aws_iam_policy_document" "monitor_lambda_cloudwatch_metrics" {
+  statement {
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringEquals"
+      variable = "cloudwatch:namespace"
+      values   = ["ServiceSentinel"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "monitor_lambda_cloudwatch_metrics" {
+  name   = "service-sentinel-monitor-cloudwatch-metrics"
+  role   = aws_iam_role.monitor_lambda.name
+  policy = data.aws_iam_policy_document.monitor_lambda_cloudwatch_metrics.json
+}
+
 data "aws_iam_policy_document" "scheduler_assume_role" {
   statement {
     effect  = "Allow"

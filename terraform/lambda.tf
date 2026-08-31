@@ -60,7 +60,8 @@ resource "aws_lambda_function" "monitor" {
 
   depends_on = [
     aws_iam_role_policy_attachment.monitor_lambda_basic,
-    aws_iam_role_policy.monitor_lambda_dynamodb_write
+    aws_iam_role_policy.monitor_lambda_dynamodb_write,
+    aws_iam_role_policy.monitor_lambda_cloudwatch_metrics
   ]
 
   lifecycle {

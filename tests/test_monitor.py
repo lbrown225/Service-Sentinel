@@ -120,8 +120,49 @@ def test_write_status_puts_exact_item_in_dynamodb(
     ]
 
 
+@pytest.mark.parametrize(
+    ("status", "expected_value"),
+    [(HEALTHY, 1), (UNHEALTHY, 0)],
+)
+def test_publish_health_metric_sends_expected_cloudwatch_value(
+    monkeypatch: pytest.MonkeyPatch,
+    status: str,
+    expected_value: int,
+) -> None:
+    metric_requests: list[dict[str, object]] = []
+
+    class FakeCloudWatch:
+        def put_metric_data(self, **request: object) -> None:
+            metric_requests.append(request)
+
+    def fake_client(service_name: str) -> FakeCloudWatch:
+        assert service_name == "cloudwatch"
+        return FakeCloudWatch()
+
+    monkeypatch.setattr(monitor_module.boto3, "client", fake_client)
+
+    monitor_module.publish_health_metric(status)
+
+    assert metric_requests == [
+        {
+            "Namespace": "ServiceSentinel",
+            "MetricData": [
+                {
+                    "MetricName": "HealthCheckSuccess",
+                    "Dimensions": [
+                        {"Name": "Service", "Value": "service-sentinel-api"}
+                    ],
+                    "Value": expected_value,
+                    "Unit": "Count",
+                }
+            ],
+        }
+    ]
+
+
 def test_handler_checks_and_writes_status(monkeypatch: pytest.MonkeyPatch) -> None:
     write_arguments: list[tuple[str, str, int]] = []
+    metric_statuses: list[str] = []
 
     def fake_check_health(health_endpoint: str, timeout_seconds: int) -> str:
         assert health_endpoint == "https://example.com/health"
@@ -131,16 +172,23 @@ def test_handler_checks_and_writes_status(monkeypatch: pytest.MonkeyPatch) -> No
     def fake_write_status(table_name: str, status: str, checked_at: int) -> None:
         write_arguments.append((table_name, status, checked_at))
 
+    def fake_publish_health_metric(status: str) -> None:
+        metric_statuses.append(status)
+
     monkeypatch.setenv("HEALTH_ENDPOINT", "https://example.com/health")
     monkeypatch.setenv("STATUS_TABLE_NAME", "service-sentinel-status")
     monkeypatch.setenv("HEALTH_CHECK_TIMEOUT_SECONDS", "7")
     monkeypatch.setattr(monitor_module, "time", lambda: NOW)
     monkeypatch.setattr(monitor_module, "check_health", fake_check_health)
     monkeypatch.setattr(monitor_module, "write_status", fake_write_status)
+    monkeypatch.setattr(
+        monitor_module, "publish_health_metric", fake_publish_health_metric
+    )
 
     result = monitor_module.handler({}, object())
 
     assert write_arguments == [("service-sentinel-status", HEALTHY, NOW)]
+    assert metric_statuses == [HEALTHY]
     assert result == {
         "service_name": "service-sentinel-api",
         "status": "HEALTHY",

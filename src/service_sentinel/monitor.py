@@ -14,6 +14,8 @@ from service_sentinel.status import HEALTHY, UNHEALTHY
 
 SERVICE_NAME = "service-sentinel-api"
 DEFAULT_TIMEOUT_SECONDS = 5
+METRIC_NAMESPACE = "ServiceSentinel"
+HEALTH_METRIC_NAME = "HealthCheckSuccess"
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -56,6 +58,22 @@ def write_status(table_name: str, status: str, checked_at: int) -> None:
     )
 
 
+def publish_health_metric(status: str) -> None:
+    """Publish 1 for a healthy check and 0 for any unhealthy check."""
+    cloudwatch = boto3.client("cloudwatch")
+    cloudwatch.put_metric_data(
+        Namespace=METRIC_NAMESPACE,
+        MetricData=[
+            {
+                "MetricName": HEALTH_METRIC_NAME,
+                "Dimensions": [{"Name": "Service", "Value": SERVICE_NAME}],
+                "Value": 1 if status == HEALTHY else 0,
+                "Unit": "Count",
+            }
+        ],
+    )
+
+
 def handler(_event: object, _context: object) -> dict[str, str | int]:
     """Run one scheduled health check and persist its observation."""
     health_endpoint = os.environ["HEALTH_ENDPOINT"]
@@ -67,6 +85,7 @@ def handler(_event: object, _context: object) -> dict[str, str | int]:
 
     status = check_health(health_endpoint, timeout_seconds)
     write_status(table_name, status, checked_at)
+    publish_health_metric(status)
 
     observation = {
         "service_name": SERVICE_NAME,
