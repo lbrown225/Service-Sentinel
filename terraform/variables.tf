@@ -13,3 +13,15 @@ variable "monitor_schedule_enabled" {
   type        = bool
   default     = false
 }
+
+variable "alert_email" {
+  description = "Optional email address subscribed to Service Sentinel health alerts"
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.alert_email == null || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.alert_email))
+    error_message = "alert_email must be null or a valid email address."
+  }
+}

@@ -12,3 +12,8 @@ output "github_actions_deploy_role_arn" {
   description = "IAM role ARN assumed by the GitHub Actions deployment workflow"
   value       = aws_iam_role.github_actions_deploy.arn
 }
+
+output "health_alert_topic_arn" {
+  description = "SNS topic receiving Service Sentinel health alarm notifications"
+  value       = aws_sns_topic.health_alerts.arn
+}
