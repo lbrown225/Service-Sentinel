@@ -27,6 +27,10 @@ resource "aws_lambda_function" "api" {
     aws_iam_role_policy_attachment.api_lambda_basic,
     aws_iam_role_policy.api_lambda_dynamodb_read
   ]
+
+  lifecycle {
+    ignore_changes = [image_uri]
+  }
 }
 
 resource "aws_lambda_function" "monitor" {
@@ -58,6 +62,10 @@ resource "aws_lambda_function" "monitor" {
     aws_iam_role_policy_attachment.monitor_lambda_basic,
     aws_iam_role_policy.monitor_lambda_dynamodb_write
   ]
+
+  lifecycle {
+    ignore_changes = [image_uri]
+  }
 }
 
 resource "aws_lambda_alias" "monitor_candidate" {
@@ -65,6 +73,10 @@ resource "aws_lambda_alias" "monitor_candidate" {
   description      = "Candidate monitor version awaiting smoke-test approval"
   function_name    = aws_lambda_function.monitor.function_name
   function_version = aws_lambda_function.monitor.version
+
+  lifecycle {
+    ignore_changes = [function_version]
+  }
 }
 
 resource "aws_lambda_alias" "monitor_production" {
@@ -83,6 +95,10 @@ resource "aws_lambda_alias" "candidate" {
   description      = "Candidate version awaiting smoke-test approval"
   function_name    = aws_lambda_function.api.function_name
   function_version = aws_lambda_function.api.version
+
+  lifecycle {
+    ignore_changes = [function_version]
+  }
 }
 
 resource "aws_lambda_alias" "production" {
