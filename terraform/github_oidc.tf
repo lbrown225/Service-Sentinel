@@ -62,9 +62,11 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     sid    = "DeployServiceSentinelFunctions"
     effect = "Allow"
     actions = [
+      "lambda:GetAlias",
       "lambda:GetFunctionConfiguration",
       "lambda:PublishVersion",
       "lambda:GetFunction",
+      "lambda:UpdateAlias",
       "lambda:UpdateFunctionCode"
     ]
     resources = [
@@ -74,13 +76,9 @@ data "aws_iam_policy_document" "github_actions_deploy" {
   }
 
   statement {
-    sid    = "TestAndPromoteServiceSentinelAliases"
-    effect = "Allow"
-    actions = [
-      "lambda:GetAlias",
-      "lambda:InvokeFunction",
-      "lambda:UpdateAlias"
-    ]
+    sid     = "InvokeServiceSentinelAliases"
+    effect  = "Allow"
+    actions = ["lambda:InvokeFunction"]
     resources = [
       aws_lambda_alias.candidate.arn,
       aws_lambda_alias.production.arn,
