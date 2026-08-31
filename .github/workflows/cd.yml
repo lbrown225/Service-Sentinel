@@ -1,0 +1,395 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: service-sentinel-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-west-1
+  AWS_ROLE_ARN: arn:aws:iam::637423491752:role/service-sentinel-github-actions-deploy
+  ECR_REPOSITORY: service-sentinel
+  IMAGE_TAG: ${{ github.sha }}
+  API_FUNCTION_NAME: service-sentinel-api
+  MONITOR_FUNCTION_NAME: service-sentinel-monitor
+  SERVICE_SENTINEL_API_BASE_URL: https://qne93ca5jg.execute-api.us-west-1.amazonaws.com
+
+jobs:
+  deploy:
+    name: Build and deploy Service Sentinel
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.2.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install Python dependencies
+        run: python -m pip install --editable ".[dev]"
+
+      - name: Run Ruff
+        run: ruff check .
+
+      - name: Run pytest
+        run: pytest
+
+      - name: Build Lambda container image
+        run: docker build --platform linux/amd64 --tag service-sentinel:${IMAGE_TAG} .
+
+      - name: Start local Lambda container
+        id: start-container
+        run: >-
+          docker run --detach
+          --name service-sentinel-cd
+          --platform linux/amd64
+          --publish 9000:8080
+          service-sentinel:${IMAGE_TAG}
+
+      - name: Verify monitor handler is packaged
+        run: >-
+          docker exec service-sentinel-cd
+          python -c "from service_sentinel.monitor import handler; assert callable(handler)"
+
+      - name: Smoke-test local Lambda container
+        run: python scripts/smoke_api_local_container.py
+
+      - name: Show local container logs after failure
+        if: failure() && steps.start-container.outcome == 'success'
+        run: docker logs service-sentinel-cd
+
+      - name: Stop local Lambda container
+        if: always() && steps.start-container.outcome == 'success'
+        run: docker rm --force service-sentinel-cd || true
+
+      - name: Authenticate to AWS with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v6.2.3
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: service-sentinel-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2.1.7
+
+      - name: Push immutable image to Amazon ECR
+        id: publish-image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          registry="${{ steps.login-ecr.outputs.registry }}"
+          remote_image="${registry}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          if aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-ids "imageTag=${IMAGE_TAG}" > /dev/null 2>&1; then
+            echo "ECR image ${remote_image} already exists; reusing it."
+          else
+            docker tag "service-sentinel:${IMAGE_TAG}" "${remote_image}"
+            docker push "${remote_image}"
+          fi
+
+          image_digest=$(aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-ids "imageTag=${IMAGE_TAG}" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text)
+
+          echo "image_digest=${image_digest}" >> "${GITHUB_OUTPUT}"
+          echo "image_uri=${registry}/${ECR_REPOSITORY}@${image_digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Wait for ECR vulnerability scan
+        run: >-
+          aws ecr wait image-scan-complete
+          --repository-name "${ECR_REPOSITORY}"
+          --image-id "imageTag=${IMAGE_TAG}"
+
+      - name: Enforce ECR vulnerability gate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          findings=$(aws ecr describe-image-scan-findings \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-id "imageTag=${IMAGE_TAG}" \
+            --query 'imageScanFindings.findingSeverityCounts' \
+            --output json)
+
+          critical=$(jq -r '.CRITICAL // 0' <<< "${findings}")
+          high=$(jq -r '.HIGH // 0' <<< "${findings}")
+
+          echo "ECR vulnerability counts: ${findings}"
+          echo "### ECR vulnerability scan" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- Image digest: \`${{ steps.publish-image.outputs.image_digest }}\`" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- Critical findings: ${critical}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "- High findings: ${high}" >> "${GITHUB_STEP_SUMMARY}"
+
+          if (( critical > 0 || high > 0 )); then
+            echo "Deployment rejected because the image has HIGH or CRITICAL findings."
+            exit 1
+          fi
+
+      - name: Publish Lambda candidate versions
+        id: publish-versions
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_uri="${{ steps.publish-image.outputs.image_uri }}"
+
+          api_version=$(aws lambda update-function-code \
+            --function-name "${API_FUNCTION_NAME}" \
+            --image-uri "${image_uri}" \
+            --publish \
+            --query 'Version' \
+            --output text)
+
+          aws lambda wait function-updated-v2 \
+            --function-name "${API_FUNCTION_NAME}"
+
+          monitor_version=$(aws lambda update-function-code \
+            --function-name "${MONITOR_FUNCTION_NAME}" \
+            --image-uri "${image_uri}" \
+            --publish \
+            --query 'Version' \
+            --output text)
+
+          aws lambda wait function-updated-v2 \
+            --function-name "${MONITOR_FUNCTION_NAME}"
+
+          aws lambda update-alias \
+            --function-name "${API_FUNCTION_NAME}" \
+            --name candidate \
+            --function-version "${api_version}"
+
+          aws lambda update-alias \
+            --function-name "${MONITOR_FUNCTION_NAME}" \
+            --name candidate \
+            --function-version "${monitor_version}"
+
+          echo "api_version=${api_version}" >> "${GITHUB_OUTPUT}"
+          echo "monitor_version=${monitor_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Smoke-test candidate API health
+        run: >-
+          python scripts/smoke_api.py
+          --target candidate
+          --route health
+          --expected-lambda-version
+          "${{ steps.publish-versions.outputs.api_version }}"
+
+      - name: Smoke-test candidate monitor
+        run: >-
+          python scripts/smoke_monitor.py
+          --alias candidate
+          --expected-lambda-version
+          "${{ steps.publish-versions.outputs.monitor_version }}"
+
+      - name: Smoke-test candidate API status
+        run: >-
+          python scripts/smoke_api.py
+          --target candidate
+          --route status
+          --expected-status HEALTHY
+          --expected-lambda-version
+          "${{ steps.publish-versions.outputs.api_version }}"
+
+      - name: Capture current production versions
+        id: previous-production
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          previous_api_version=$(aws lambda get-alias \
+            --function-name "${API_FUNCTION_NAME}" \
+            --name production \
+            --query 'FunctionVersion' \
+            --output text)
+
+          previous_monitor_version=$(aws lambda get-alias \
+            --function-name "${MONITOR_FUNCTION_NAME}" \
+            --name production \
+            --query 'FunctionVersion' \
+            --output text)
+
+          echo "previous_api_version=${previous_api_version}" >> "${GITHUB_OUTPUT}"
+          echo "previous_monitor_version=${previous_monitor_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Promote tested versions to production
+        id: promote-production
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          api_version="${{ steps.publish-versions.outputs.api_version }}"
+          monitor_version="${{ steps.publish-versions.outputs.monitor_version }}"
+
+          aws lambda update-alias \
+            --function-name "${API_FUNCTION_NAME}" \
+            --name production \
+            --function-version "${api_version}"
+
+          aws lambda update-alias \
+            --function-name "${MONITOR_FUNCTION_NAME}" \
+            --name production \
+            --function-version "${monitor_version}"
+
+          echo "promoted=true" >> "${GITHUB_OUTPUT}"
+          echo "api_version=${api_version}" >> "${GITHUB_OUTPUT}"
+          echo "monitor_version=${monitor_version}" >> "${GITHUB_OUTPUT}"
+
+      - name: Smoke-test production API health
+        run: >-
+          python scripts/smoke_api.py
+          --target production
+          --route health
+          --api-base-url "${SERVICE_SENTINEL_API_BASE_URL}"
+
+      - name: Smoke-test production monitor
+        run: >-
+          python scripts/smoke_monitor.py
+          --alias production
+          --expected-lambda-version
+          "${{ steps.publish-versions.outputs.monitor_version }}"
+
+      - name: Smoke-test production API status
+        run: >-
+          python scripts/smoke_api.py
+          --target production
+          --route status
+          --expected-status HEALTHY
+          --api-base-url "${SERVICE_SENTINEL_API_BASE_URL}"
+
+      - name: Roll back production aliases after failure
+        id: rollback-production
+        if: >-
+          failure() &&
+          steps.previous-production.outcome == 'success' &&
+          steps.promote-production.outcome != 'skipped'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          previous_api_version="${{ steps.previous-production.outputs.previous_api_version }}"
+          previous_monitor_version="${{ steps.previous-production.outputs.previous_monitor_version }}"
+
+          aws lambda update-alias \
+            --function-name "${API_FUNCTION_NAME}" \
+            --name production \
+            --function-version "${previous_api_version}"
+
+          aws lambda update-alias \
+            --function-name "${MONITOR_FUNCTION_NAME}" \
+            --name production \
+            --function-version "${previous_monitor_version}"
+
+          echo "Production aliases restored to API version ${previous_api_version} and monitor version ${previous_monitor_version}."
+
+      - name: Tag verified production image
+        id: tag-production-image
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          production_tag="prod-${IMAGE_TAG}"
+          expected_digest="${{ steps.publish-image.outputs.image_digest }}"
+          existing_digest=$(aws ecr describe-images \
+            --repository-name "${ECR_REPOSITORY}" \
+            --image-ids "imageTag=${production_tag}" \
+            --query 'imageDetails[0].imageDigest' \
+            --output text 2> /dev/null || true)
+
+          if [[ -n "${existing_digest}" && "${existing_digest}" != "None" ]]; then
+            if [[ "${existing_digest}" != "${expected_digest}" ]]; then
+              echo "Existing ${production_tag} points to an unexpected digest."
+              exit 1
+            fi
+
+            echo "ECR production tag ${production_tag} already exists; reusing it."
+          else
+            image_manifest=$(aws ecr batch-get-image \
+              --repository-name "${ECR_REPOSITORY}" \
+              --image-ids "imageTag=${IMAGE_TAG}" \
+              --query 'images[0].imageManifest' \
+              --output text)
+
+            tagged_digest=$(aws ecr put-image \
+              --repository-name "${ECR_REPOSITORY}" \
+              --image-tag "${production_tag}" \
+              --image-manifest "${image_manifest}" \
+              --query 'image.imageId.imageDigest' \
+              --output text)
+
+            if [[ "${tagged_digest}" != "${expected_digest}" ]]; then
+              echo "Production tag was created with an unexpected digest."
+              exit 1
+            fi
+          fi
+
+          echo "production_tag=${production_tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Write deployment summary
+        if: always()
+        shell: bash
+        run: |
+          previous_api_version="${{ steps.previous-production.outputs.previous_api_version }}"
+          previous_monitor_version="${{ steps.previous-production.outputs.previous_monitor_version }}"
+          api_version="${{ steps.publish-versions.outputs.api_version }}"
+          monitor_version="${{ steps.publish-versions.outputs.monitor_version }}"
+          image_digest="${{ steps.publish-image.outputs.image_digest }}"
+          production_tag="${{ steps.tag-production-image.outputs.production_tag }}"
+
+          if [[ "${{ job.status }}" == "success" ]]; then
+            result="✅ Deployment succeeded"
+          elif [[ "${{ steps.rollback-production.outcome }}" == "success" ]]; then
+            result="❌ Deployment failed; production rollback succeeded"
+          elif [[ "${{ steps.tag-production-image.outcome }}" == "failure" ]]; then
+            result="⚠️ Production verified, but ECR production tagging failed"
+          elif [[ "${{ steps.promote-production.outcome }}" == "skipped" ]]; then
+            result="❌ Deployment failed before production promotion"
+          else
+            result="❌ Deployment failed; production rollback was not completed"
+          fi
+
+          {
+            echo "## Service Sentinel deployment"
+            echo "- Result: ${result}"
+            echo "- Git commit: \`${IMAGE_TAG}\`"
+
+            if [[ -n "${image_digest}" ]]; then
+              echo "- Image digest: \`${image_digest}\`"
+            fi
+
+            if [[ -n "${production_tag}" ]]; then
+              echo "- Production tag: \`${production_tag}\`"
+            fi
+
+            if [[ -n "${previous_api_version}" && -n "${api_version}" ]]; then
+              echo "- API version: \`${previous_api_version}\` → \`${api_version}\`"
+            elif [[ -n "${api_version}" ]]; then
+              echo "- Published API version: \`${api_version}\`"
+            fi
+
+            if [[ -n "${previous_monitor_version}" && -n "${monitor_version}" ]]; then
+              echo "- Monitor version: \`${previous_monitor_version}\` → \`${monitor_version}\`"
+            elif [[ -n "${monitor_version}" ]]; then
+              echo "- Published monitor version: \`${monitor_version}\`"
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
