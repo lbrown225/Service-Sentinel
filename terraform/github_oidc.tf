@@ -64,6 +64,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     actions = [
       "lambda:GetFunctionConfiguration",
       "lambda:PublishVersion",
+      "lambda:GetFunction",
       "lambda:UpdateFunctionCode"
     ]
     resources = [
